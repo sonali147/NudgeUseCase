@@ -1,0 +1,95 @@
+1.Call Average :
+Functional description:  We will track the average calls made by the MR and nudge to add visits in the tour plan to maintain the monthly average. We will also be checking MR's visits and ask users to add more visits to the tour plan(track if tourplan is modified).  
+Types of Nudges: 
+Nudge to add doctor visit to tour plan (Actionable)                      
+    Data points: MR details, Manager details, Visited doctors
+	
+	
+select id as userid, field_days as fieldworkingdays,tot_dr_calls as noofdrcalls,avg_dr_calls as drcallavg,month, tot_dr_met as nooddrsmettotal, avg_chem_calls as chemcallavg from individual_mis_summary where id ".$where." and month=1  and year=".$finacialyear2
+
+
+SELECT 
+	CONCAT(a.first_name,' ',a.last_name,' (',a.title,')','(',p1.patchname,')')as u_name, 
+	CONCAT(b.first_name,' ',b.last_name,'(',b.title,')','(',p2.patchname,')') as asm,
+	h1.hqname as hqname1, 
+	a.reports_to_id as reportid,
+	h2.hqname as hqname2 
+FROM users a 
+LEFT JOIN users b ON a.reports_to_id=b.id
+INNER JOIN patches p1 ON a.patch=p1.patchid
+INNER JOIN patches p2 ON b.patch=p2.patchid
+INNER JOIN headquarters  h1 ON a.headquater=h1.hqid 
+INNER JOIN headquarters h2 ON b.headquater=h2.hqid  
+WHERE 
+a.deleted=0 AND a.id=".$user;	
+
+
+2. Achievement Percentage:
+
+
+Stockist planned :
+Stockists:The stockist planned by the user in the tourplan
+
+SELECT touringdetails.patch_brick AS brickId,bricks.brickname AS brickName,
+touringday.`day` AS `day`,stckcontactdetails.contactid AS stockistId,
+stckcontactdetails.stockistname AS stockistName, towns.station as station, 
+towns.townid as townId,towns.townname FROM 
+touringday INNER JOIN touringdetails ON touringdetails.id = touringday.daykey 
+inner join bricks on touringdetails.patch_brick = bricks.brickid 
+inner join stckcontactdetails on touringdetails.patch_brick=stckcontactdetails.brick 
+INNER JOIN townbrickassociation ON stckcontactdetails.brick = townbrickassociation.brickid 
+INNER JOIN towns ON townbrickassociation.townid = towns.townid 
+INNER JOIN touringyearmonth ON touringday.crmid = touringyearmonth.crmid 
+WHERE  stckcontactdetails.deleted=0 and stckcontactdetails.brick=touringdetails.patch_brick 
+AND touringday.`day`=$i AND touringyearmonth.crmid ='$crmid' and bricks.deleted=0 
+GROUP BY stockistId
+
+
+
+Sales query:
+select sales.mainid,sum(salesdetails.sales) as sales_unit,sum(salesdetails.opening) AS opening_unit,
+    sum(salesdetails.primary) AS primary_unit,
+    sum(salesdetails.closing) AS closing_unit,
+    sum(salesdetails.secondary) AS secondary_unit,
+    sum(salesdetails.openingvalue) AS opening_value,
+    sum(salesdetails.primaryvalue) AS primary_value,
+    sum(salesdetails.stockvalue) AS closing_value,
+    sum(salesdetails.secondaryvalue) AS secondary_value 
+	from sales inner join salesdetails on sales.mainid=salesdetails.mainid
+	where sales.month=".$month." and sales.year=".$year." and salesdetails.deleted=0 and sales.submitted=1 GROUP BY sales.mainid order by sales.mainid
+	
+Query
+select division.name as division,patches.patchname as territory_name,patches.patchsapcode as territory_code,area_code,area_name,district_code,district_name,zone_code,zone_name,REPLACE(stckcontactmaster.stockistname,',',' ') as stckname,stckcontactmaster.stockistcode as stckcode,territory_primary.productcode as pcode,products.productname as pname,territory_primary.primary as tprimary,territory_primary.primary_value as tpvalue
+from zone2territory		
+inner join patches on patches.patchsapcode=zone2territory.territory_code
+inner join users u on u.patch = patches.patchid	 
+inner join territory_primary on zone2territory.territory_code =territory_primary.territorycode
+inner join division on division.divisionid=territory_primary.division
+inner join stckcontactmaster on territory_primary.stockistid=stckcontactmaster.masterid						
+inner join products on territory_primary.productid=products.productid
+where stckcontactmaster.del = 0 and products.deleted=0 and territory_primary.primary != 0 and division.divisionid =".$divi." and territory_primary.year=".$_REQUEST['year']." and territory_primary.month=".$_REQUEST['month']." and u.id IN (".implode(',', getTeamMembers($curr_id)).")
+group by stockistid,territory_primary.productid
+
+
+3. Tour plan
+
+    select stdactivity.activity_name, stdactivity.flag, bricks.brickname, touringdetails.activity, touringdetails.patch_brick, 
+    touringdetails.note, touringdetails.pid, touringday.day,townname,station 
+    from touringyearmonth inner join touringday on touringyearmonth.crmid= touringday.crmid 
+    inner join touringdetails on touringdetails.id = touringday.daykey 
+    inner join stdactivity on touringdetails.activity = stdactivity.id 
+    left outer join bricks on touringdetails.patch_brick = bricks.brickid 
+    left outer join townbrickassociation on bricks.brickid=townbrickassociation.brickid 
+    left outer join towns on townbrickassociation.townid=towns.townid 
+    where touringyearmonth.crmid=''
+
+    select stdactivity.activity_name, stdactivity.flag, bricks.brickname, touringdetails.activity, touringdetails.patch_brick, 
+    touringdetails.note, touringdetails.pid, touringday.day,townname,station 
+    from touringyearmonth inner join touringday on touringyearmonth.crmid= touringday.crmid 
+    inner join touringdetails on touringdetails.id = touringday.daykey 
+    inner join stdactivity on touringdetails.activity = stdactivity.id 
+    left outer join bricks on touringdetails.patch_brick = bricks.brickid 
+    left outer join townbrickassociation on bricks.brickid=townbrickassociation.brickid 
+    left outer join towns on townbrickassociation.townid=towns.townid 
+    where touringyearmonth.smownerid=7065 and touringyearmonth.month=1  and touringyearmonth.year=2021 and 
+    touringyearmonth.deleted=0 and touringyearmonth.submitted=1 and touringyearmonth.authorise=2

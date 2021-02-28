@@ -1,0 +1,91 @@
+1.DCR File checking on time
+
+
+Points to consider:
+1.Holiday template- Query to consider- 
+SELECT 
+distinct holidaytemplatedetails.* 
+FROM holidaytemplate 
+INNER JOIN holidaytemplatedetails on holidaytemplate.id=holidaytemplatedetails.id 
+INNER JOIN user2holidaytemplate on user2holidaytemplate.holidaytemplateid=holidaytemplatedetails.id 
+WHERE (user2holidaytemplate.yearid ='".$yr."' or user2holidaytemplate.yearid ='".$yeartemp."') and holidaytemplate.deleted=0 and user2holidaytemplate.userid=".$current_user;
+
+2.Leave - Query to consider 
+SELECT 
+frm_date as fdate,to_date as tdate,no_of_days 
+FROM leaveapplication left outer join leavestatus 
+on leaveapplication.applno=leavestatus.applno 
+WHERE emp_id='".$current_user."' and deleted=0 and approved!='Rejected' and app_del=0 order by frm_date
+					
+					
+3.Weeklyoff- SELECT week_holiday,additionaloff
+								FROM week_holidaymaster
+								WHERE userid = $userid AND deleted=0
+4 DCR- dcrs_main table, users table - For user information
+
+SELECT 
+dcrs_main.mainid
+FROM dcrs_main
+WHERE
+dcrs_main.deleted=0 
+and dcrs.deleted=0
+and dcrs_main.smownerid='".$current_user."' 
+and dcrs_main.date ='".$hold_date."'								
+								
+
+								
+Tp Deviation:
+
+1.Points to consider:
+
+Functional description:  Percentage deviation will be shown to the MR in order to assist him/her in better planning.  
+Types of Nudges: 
+Nudge to stay on track as per the tour plan (Non-Actionable)         
+ Data points: MR details, Manager details, Tourplan deviation details.  								
+								
+Table :individual_mis_summary
+
+select * from individual_mis_summary where id =".$userid." and `month` = ".$month." and year = ".$year." order by year,month
+
+
+Tables related to MR details, Manager details, User HQ details
+SELECT 
+	CONCAT(a.first_name,' ',a.last_name,' (',a.title,')','(',p1.patchname,')')as u_name, 
+	CONCAT(b.first_name,' ',b.last_name,'(',b.title,')','(',p2.patchname,')') as asm,
+	h1.hqname as hqname1, 
+	a.reports_to_id as reportid,
+	h2.hqname as hqname2 
+FROM users a 
+LEFT JOIN users b ON a.reports_to_id=b.id
+INNER JOIN patches p1 ON a.patch=p1.patchid
+INNER JOIN patches p2 ON b.patch=p2.patchid
+INNER JOIN headquarters  h1 ON a.headquater=h1.hqid 
+INNER JOIN headquarters h2 ON b.headquater=h2.hqid  
+WHERE 
+a.deleted=0 AND a.id=".$user;	
+
+
+
+
+
+3. 2V Coverage:
+
+Following query can be use to checked which patch is planned and the Doctor assigned to that patch.
+Details of the doctor are present in contactdetails table
+
+
+SELECT touringdetails.patch_brick AS brickId, bricks.brickname AS brickName, touringday.`day` AS `day`,contactdetails.contactid AS contactId, trim(concat(trim(contactdetails.firstname),' ',trim(contactdetails.lastname))) AS contactName, towns.station as station, towns.townid as townId,towns.townname as townName FROM touringday
+INNER JOIN touringdetails ON touringdetails.id = touringday.daykey
+inner join contact_wise_bricks on touringdetails.patch_brick=contact_wise_bricks.brick_id
+inner join bricks on contact_wise_bricks.brick_id=bricks.brickid
+inner join contactdetails on contact_wise_bricks.contact_id=contactdetails.contactid
+INNER JOIN townbrickassociation ON contactdetails.brick = townbrickassociation.brickid
+INNER JOIN towns ON townbrickassociation.townid = towns.townid
+INNER JOIN touringyearmonth ON touringday.crmid = touringyearmonth.crmid
+WHERE  touringday.`day` =$i and contactdetails.deleted=0 /*and contactdetails.brick=touringdetails.patch_brick*/ AND touringyearmonth.crmid = '$crmid' and bricks.deleted=0 and contact_wise_bricks.deleted=0 GROUP BY contactId
+
+
+
+From : adminmis the 2v coverage data.	
+
+select userid,month,year,drsinlistspl,drsinlistrpl,drsinlisttpl,drsinlistqpl,drsinlisttotal,spl_freqcoverage,rpl_freqcoverage,tpl_freqcoverage,qpl_freqcoverage,nooddrsmettotal from adminmis where userid ".$userid." and ((month >=4 and year=".$finacialyear1." ) or (month <4 and year=".$finacialyear2.")) order by year,month;

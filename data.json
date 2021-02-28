@@ -1,0 +1,16 @@
+{
+"id" : 1,
+"call_avg" : 10, //individual_mis_summary
+"dr_calls_planned" : [{
+        "contact_id" : 123,
+        "dr_name" : "ABC",
+        "area" : "",
+        "freq" : 2,
+        "visited" : 0
+    }, {}],
+"total_dr_calls" : 300, //for calculating total dr calls -freq of dr calls counted
+"field_days" : 28, //total working days - leaves - holidays - weekendoff
+"dcr_pending" : [{"date" : "2021-03-01", "status" : "PENDING", "completed_date" : "2021-03-05", "filedWithin" : 4}],
+"dcr_open" : [{"date" : "2021-03-02", "status" : "OPEN", "completed_date" : null, "filedWithin": null}],
+"tp_deviation": "10%"
+}

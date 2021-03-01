@@ -11,6 +11,7 @@ try:
         user="sonali_gupta",
         passwd="Si8D%4tG1P%J",
         db="lupinsales",
+        connect_timeout=10,
         cursorclass=MySQLdb.cursors.DictCursor)
     print("SQL db connection done")
 except Exception as e:
@@ -30,12 +31,16 @@ if mongo_client is not None:
     mongo_db = mongo_client['Nudge']
     
 
-datetime = datetime.now()
-year = datetime.year
+now = datetime.now()
+year = now.year
 #year = 2017
-month = datetime.month
+month = now.month
+last_date = date(year, month+1,1) - timedelta(days=1)
+total_days_in_month = last_date.strftime("%d")
+month_date_list = [date(year,month,each).strftime("%Y-%m-%d") for each in range(1,int(total_days_in_month)+1)]
+#print(month_date_list)
 #month = 4
-today_date = datetime.strftime("%Y-%m-%d")
+today_date = now.strftime("%Y-%m-%d")
 day_subtract_dict = {"Mon" : -5, "Tue" : -4, "Wed" : -3, "Thur" : -2, "Fri" : -1, "Sat" : 0, "Sun" : 1}
 
 print(year)
@@ -160,19 +165,24 @@ def individual_summary():
     data = []
     conn = create_db_conn()
     if conn is not None:
-        query = "select id, division, user_name, employeecode, monthdays, leaves, field_days ,tot_dr_calls , avg_dr_calls , tot_dr_met , tot_chem_calls, avg_chem_calls from individual_mis_summary where month={month} and year={year} limit 3".format(month=month, year=year)
+        query = "select id, division, user_name, employeecode, monthdays, leaves, field_days as field_days_till_date ,tot_dr_calls , avg_dr_calls as call_avg , tot_dr_met , tot_chem_calls, avg_chem_calls from individual_mis_summary where month={month} and year={year} limit 3".format(month=month, year=year)
         #print(query)
         conn.execute(query)
         result = conn.fetchall()
         print(result) #tuple
         id_list = []
         for row in result:
+            temp = deepcopy(row)
             id_list.append(row["id"])
             div = row["division"]
             if div in division_wise_off:
                 week_off = division_holidays[div]
             else:
                 week_off = division_holidays["0"]
+            holidays = user_holiday(row["id"])
+            leaves = user_leaves(row["id"])
+            temp["field_days"] = list(set(month_date_list) - set(week_off) - set(holidays) - set(leaves))
+            temp["no_of_field_days"] = len(temp["field_days"])
             data.append(row)  
         conn.close()
     return result, id_list, data

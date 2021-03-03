@@ -204,6 +204,16 @@ def individual_summary(division_wise_off):
             temp["field_days"] = sorted(list(set(month_date_list) - set(week_off) - set(holidays) - set(leaves)))
             temp["no_of_field_days"] = len(temp["field_days"])
             temp = adminmis(temp)
+            dcr_report = mongo_db["dcr"].find_one({"id": row["id"]}, {"_id": 0});
+            if dcr_report:
+                dcr(dcr_report)
+            else:
+                dcr_report["id"] = row["id"]
+                dcr_report["dcr_open"] = []
+                dcr_report["dcr_completed"] = []
+                for dt in temp["field_days"]:
+                    dcr_report["dcr_open"].append({"date": dt, "status": "Open", "completed": None, "filedWithin": None})
+                dcr(dcr_report)
             data.append(temp)
         conn.close()
     return id_list, data
@@ -261,8 +271,20 @@ where userid = {user_id} and month = {month} and year = {year}""".format(user_id
 def tp_deviation():
     query = ""
 
-def dcr():
-    query = ""
+def dcr(dcr_report):
+    result = ()
+    user_id = dcr_report["id"]
+    dt_completed = [e["date"] for e in dcr_report["dcr_completed"]]
+    dt_open = [e["date"] for e in dcr_report["dcr_open"]]
+    conn = create_db_conn()
+    if conn is not None:
+        # considering only current month
+        query = """select date, status, creation_date from dcrs_main 
+        where deleted = 0 and smownerid = {user_id} and year = {year} and month = {month}""".format(user_id=user_id, year=year, month=month)
+        conn.execute(query)
+        result = conn.fetchall()
+        for each in result:
+            dt = each["date"]
 
 def ach_percent():
     query = ""

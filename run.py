@@ -6,10 +6,10 @@ from datetime import datetime, date, timedelta
 
 try:
     db = MySQLdb.connect(
-        host="144.76.139.246",
-        user="sonali_gupta",
-        passwd="Si8D%4tG1P%J",
-        db="lupinsales",
+        host="XXX.XXX.XXX.XXX",
+        user="XXXX",
+        passwd="XXX",
+        db="XXXXX",
         connect_timeout=10,
         cursorclass=MySQLdb.cursors.DictCursor)
     print("SQL db connection done")

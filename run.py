@@ -185,7 +185,7 @@ def individual_summary(division_wise_off):
     conn = create_db_conn()
     if conn is not None:
         #remove limit 3 in prod
-        query = "select id, division, user_name, employeecode, monthdays, leaves, field_days as field_days_till_date ,tot_dr_calls , avg_dr_calls as call_avg , tot_dr_met , tot_chem_calls, avg_chem_calls from individual_mis_summary where month={month} and year={year} and id=6035 limit 3".format(month=month, year=year)
+        query = "select id, division, user_name, employeecode, monthdays, leaves, field_days as field_days_till_date ,tot_dr_calls , avg_dr_calls as call_avg , tot_dr_met , tot_chem_calls, avg_chem_calls, deviation_days from individual_mis_summary where month={month} and year={year} and id=6035 limit 3".format(month=month, year=year)
         #print(query)
         conn.execute(query)
         result = conn.fetchall()
@@ -196,8 +196,19 @@ def individual_summary(division_wise_off):
             temp["month"] = month 
             for k,v in temp.items():
                 if k in ["leaves", "field_days_till_date","tot_dr_calls","call_avg", "tot_dr_met", "tot_chem_calls",
-                "avg_chem_calls"]:
+                "avg_chem_calls", "deviation_days"]:
                     temp[k] = float(v)
+            #tp deviation
+            temp["tp_deviation"] = round(temp["deviation_days"]/temp["field_days_till_date"] * 100,2)
+            territory_info = user_area(row["id"]) 
+            temp["patchid"] = territory_info.get("patchid", None)
+            temp["areaid"] = territory_info.get("areaid", None)
+            temp["regionid"] = territory_info.get("regionid", None)
+            temp["zoneid"] = territory_info.get("zoneid", None)
+            temp["patchname"] = territory_info.get("patchname", None)
+            temp["areaname"] = territory_info.get("areaname", None)
+            temp["regionname"] = territory_info.get("regionname", None)
+            temp["zonename"] = territory_info.get("zonename", None)
             div = row["division"]
             if div in division_wise_off:
                 week_off = division_wise_off[div]
@@ -277,9 +288,6 @@ where userid = {user_id} and month = {month} and year = {year}""".format(user_id
         temp["qpl"]["coverage"] = float(result.get("qpl_freqcoverage", 0))
     return temp
 
-def tp_deviation():
-    query = ""
-
 def dcr(dcr_report):
     result = ()
     user_id = dcr_report["id"]
@@ -316,7 +324,7 @@ def tour_plan(user_id):
         conn.execute(query1)
         result = conn.fetchone()
         print(result)
-        if result.get("crmid", None):
+        if result and result.get("crmid", None):
             crm_id = result["crmid"]
             query2 = """SELECT touringdetails.patch_brick AS brickId, bricks.brickname AS brickName, 
                         touringday.`day` AS `day`, contactdetails.contactid AS contactId, 
@@ -344,6 +352,20 @@ def tour_plan(user_id):
             conn.close()
     return dr_details
 
+def user_area(user_id):
+    result = {}
+    conn = create_db_conn()
+    if conn is not None:
+        query = """select users.id, patches.patchid, patches.patchname, areas.areaid, areas.areaname,
+         regions.regionid, regions.regionname, zones.zoneid, zones.zonename from patches 
+         inner join areas on patches.areaid = areas.areaid 
+         inner join regions on patches.regionid=regions.regionid 
+         inner join zones on patches.zoneid=zones.zoneid 
+         inner join users on users.patch=patches.patchid where users.id={user_id}""".format(user_id=user_id)
+        conn.execute(query)
+        result = conn.fetchone()
+    return result
+    
 def ach_percent():
     query = ""
 

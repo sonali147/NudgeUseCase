@@ -1,3 +1,4 @@
+#4202,4291,3965,3967
 import regex
 import MySQLdb.cursors
 from copy import deepcopy
@@ -29,10 +30,11 @@ except Exception as e:
 if mongo_client is not None:
     mongo_db = mongo_client['Nudge']
     
+suffix = "_nudge_app"
 
 now = datetime.now()
 year = now.year
-year = 2017
+#year = 2017
 month = now.month
 #month = 4
 last_date = date(year, month+1,1) - timedelta(days=1)
@@ -50,8 +52,7 @@ def main():
     division_wise_off = division_holidays()
     #print(division_wise_off)
     summary = individual_summary(division_wise_off)
-    print(summary)
-    #mongo_dump(summary, "user_data", many=1)
+    #print(summary)
     return True
 
 def create_db_conn():
@@ -67,7 +68,7 @@ def division_holidays():
     field_days = {}
     conn = create_db_conn()
     if conn is not None:
-        query = "SELECT division,week_holiday,additionaloff FROM week_holidaymaster WHERE deleted=0"
+        query = "SELECT division,week_holiday,additionaloff FROM week_holidaymaster{} WHERE deleted=0".format(suffix)
         conn.execute(query)
         result = conn.fetchall()
         #division - 0 means rest of the division
@@ -81,7 +82,7 @@ def user_holiday(user_id):
     dates = []
     conn = create_db_conn()
     if conn is not None:
-        query = "select holidaytemplateid from user2holidaytemplate where userid = {user_id} and yearid = {year}".format(user_id=user_id, year=year)
+        query = "select holidaytemplateid from user2holidaytemplate{append} where userid = {user_id} and yearid = {year}".format(user_id=user_id, year=year,append=suffix)
         conn.execute(query)
         result = conn.fetchall()
         #result = ({"holidaytemplateid" : 57},)
@@ -109,7 +110,7 @@ def holiday_template_dates(result):
             dates = col.find_one({"holiday_template_id" : holiday_template_id, "year" : year},{"_id": 0,"dates": 1})["dates"]
         else:
             if conn is not None:
-                query = "select date from holidaytemplatedetails where id={holiday_template_id}".format(holiday_template_id=holiday_template_id)
+                query = "select date from holidaytemplatedetails{append} where id={holiday_template_id}".format(holiday_template_id=holiday_template_id, append=suffix)
                 conn.execute(query)
                 res = conn.fetchall()
                 for e in res:
@@ -122,10 +123,10 @@ def user_leaves(user_id):
     dates = []
     conn = create_db_conn()
     if conn is not None:
-        query = """SELECT * FROM `leaveapplication` 
-        left outer join leavestatus on leaveapplication.applno=leavestatus.applno 
-        where leaveapplication.emp_id={user_id} and leavestatus.approved!='Rejected' 
-        and leavestatus.approved!='Withdrawn' and year={year} and month={month}""".format(user_id=user_id, year=year, month=month)
+        query = """SELECT * FROM `leaveapplication{append}` 
+        left outer join leavestatus{append} on leaveapplication{append}.applno=leavestatus{append}.applno 
+        where leaveapplication{append}.emp_id={user_id} and leavestatus{append}.approved!='Rejected' 
+        and leavestatus{append}.approved!='Withdrawn' and year={year} and month={month}""".format(user_id=user_id, year=year, month=month, append=suffix)
         #for testing dates extraction if no of days leaves is more than 1 
         #query = "SELECT * FROM `leaveapplication` left outer join leavestatus on leaveapplication.applno=leavestatus.applno where leaveapplication.emp_id={user_id} and no_of_days>1".format(user_id=user_id)
         conn.execute(query)
@@ -185,7 +186,7 @@ def individual_summary(division_wise_off):
     conn = create_db_conn()
     if conn is not None:
         #remove limit 3 in prod
-        query = "select id, division, user_name, employeecode, monthdays, leaves, field_days as field_days_till_date ,tot_dr_calls , avg_dr_calls as call_avg , tot_dr_met , tot_chem_calls, avg_chem_calls, deviation_days from individual_mis_summary where month={month} and year={year} and id=6035 limit 3".format(month=month, year=year)
+        query = "select id, division, user_name, employeecode, monthdays, leaves, field_days as field_days_till_date ,tot_dr_calls , avg_dr_calls as call_avg , tot_dr_met , tot_chem_calls, avg_chem_calls, deviation_days from individual_mis_summary{append} where month={month} and year={year} and user_name!='Vacant' limit 5".format(month=month, year=year, append=suffix)
         #print(query)
         conn.execute(query)
         result = conn.fetchall()
@@ -199,7 +200,8 @@ def individual_summary(division_wise_off):
                 "avg_chem_calls", "deviation_days"]:
                     temp[k] = float(v)
             #tp deviation
-            temp["tp_deviation"] = round(temp["deviation_days"]/temp["field_days_till_date"] * 100,2)
+            temp["tp_deviation"] = round(temp["deviation_days"]/temp["field_days_till_date"] * 100,2) if temp["field_days_till_date"] else 0
+            print(row["id"])
             territory_info = user_area(row["id"]) 
             temp["patchid"] = territory_info.get("patchid", None)
             temp["areaid"] = territory_info.get("areaid", None)
@@ -233,8 +235,15 @@ def individual_summary(division_wise_off):
                 for dt in temp["field_days"]:
                     dcr_report["dcr_open"].append({"date": dt, "status": "Open", "completed": None, "filedWithin": None})
                 dcr(dcr_report)
+            stats_temp = {"id":row["id"], "2V":two_v_coverage(row["id"]), "call_avg":call_avg(row["id"]),  
+            "tp_dev":tp_dev(row["id"]), "dcr":dcr_lock(row["id"])}
+            resp = mongo_db["statistics"].find_one({"id":row["id"]})
+            if resp:
+                mongo_db["statistics"].replace_one({"id":row["id"]},stats_temp)
+            else:
+                mongo_db["statistics"].insert(stats_temp)
             data.append(temp)
-            mongo_dump(data, "user_data", many=1)
+        mongo_dump(data, "user_data", many=1)
         conn.close()
     return data
 
@@ -252,11 +261,13 @@ def adminmis(temp):
         rpl_dr_met_once, rpl_dr_met_twice, rpl_dr_met_thrice, rpl_dr_met_four, rpl_dr_met_more_four,   
         tpl_dr_met_once, tpl_dr_met_twice, tpl_dr_met_thrice, tpl_dr_met_four, tpl_dr_met_more_four,   
         qpl_dr_met_once, qpl_dr_met_twice, qpl_dr_met_thrice, qpl_dr_met_four, qpl_dr_met_more_four,   
-spl_freqcoverage,rpl_freqcoverage,tpl_freqcoverage,qpl_freqcoverage,nooddrsmettotal, reports_to_id from adminmis               
-where userid = {user_id} and month = {month} and year = {year}""".format(user_id=user_id, month=month, year=year)
+        spl_freqcoverage,rpl_freqcoverage,tpl_freqcoverage,qpl_freqcoverage,nooddrsmettotal, 
+        reports_to_id from adminmis{append} where userid = {user_id} and month = {month} and year = {year}""".format(user_id=user_id, month=month, year=year, append=suffix)
         conn.execute(query)
         result = conn.fetchone()
-        print(result)
+        if not result:
+            result = {}
+        #print(result)
         temp["manager_id"] = result.get("reports_to_id", None)
         temp["spl"]["tot_drs"] = result.get("drsinlistspl", 0)
         temp["rpl"]["tot_drs"] = result.get("drsinlistrpl", 0)
@@ -296,8 +307,8 @@ def dcr(dcr_report):
     conn = create_db_conn()
     if conn is not None:
         # considering only current month
-        query = """select date, status, creation_date from dcrs_main 
-        where deleted = 0 and smownerid = {user_id} and year = {year} and month = {month}""".format(user_id=user_id, year=year, month=month)
+        query = """select date, status, creation_date from dcrs_main{append} 
+        where deleted = 0 and smownerid = {user_id} and year = {year} and month = {month}""".format(user_id=user_id, year=year, month=month, append=suffix)
         conn.execute(query)
         result = conn.fetchall()
         for each in result:
@@ -320,27 +331,27 @@ def tour_plan(user_id):
         return response
     conn = create_db_conn()
     if conn is not None:
-        query1 = "Select crmid from touringyearmonth where year={year} and month={month} and smownerid={user_id}".format(year=year, month=month, user_id=user_id) 
+        query1 = "Select crmid from touringyearmonth{append} where year={year} and month={month} and smownerid={user_id}".format(year=year, month=month, user_id=user_id, append=suffix) 
         conn.execute(query1)
         result = conn.fetchone()
         print(result)
         if result and result.get("crmid", None):
             crm_id = result["crmid"]
-            query2 = """SELECT touringdetails.patch_brick AS brickId, bricks.brickname AS brickName, 
-                        touringday.`day` AS `day`, contactdetails.contactid AS contactId, 
-                        trim(concat(trim(contactdetails.firstname),' ',trim(contactdetails.lastname))) AS contactName, 
-                        towns.station as station, towns.townid as townId,towns.townname as townName FROM touringday 
-                        INNER JOIN touringdetails ON touringdetails.id = touringday.daykey 
-                        inner join contact_wise_bricks on touringdetails.patch_brick=contact_wise_bricks.brick_id
-                        INNER JOIN touringcontacts ON touringcontacts.id = touringdetails.pid 
-                        INNER JOIN contactdetails ON contactdetails.contactid = touringcontacts.contactid
-                        inner join bricks on contact_wise_bricks.brick_id=bricks.brickid 
-                        INNER JOIN townbrickassociation ON contactdetails.brick = townbrickassociation.brickid 
-                        INNER JOIN towns ON townbrickassociation.townid = towns.townid 
-                        INNER JOIN touringyearmonth ON touringday.crmid = touringyearmonth.crmid 
-                        WHERE touringcontacts.contacttype = 'DR' and contactdetails.deleted=0 and bricks.deleted=0 
-                        and contactdetails.brick=touringdetails.patch_brick and contact_wise_bricks.deleted=0 AND touringyearmonth.crmid = {crm_id}  
-                        GROUP BY contactdetails.contactid""".format(crm_id=crm_id)
+            query2 = """SELECT touringdetails{append}.patch_brick AS brickId, bricks{append}.brickname AS brickName, 
+                        touringday{append}.`day` AS `day`, contactdetails{append}.contactid AS contactId, 
+                        trim(concat(trim(contactdetails{append}.firstname),' ',trim(contactdetails{append}.lastname))) AS contactName, 
+                        towns{append}.station as station, towns{append}.townid as townId,towns{append}.townname as townName FROM touringday{append} 
+                        INNER JOIN touringdetails{append} ON touringdetails{append}.id = touringday{append}.daykey 
+                        inner join contact_wise_bricks{append} on touringdetails{append}.patch_brick=contact_wise_bricks{append}.brick_id
+                        INNER JOIN touringcontacts{append} ON touringcontacts{append}.id = touringdetails{append}.pid 
+                        INNER JOIN contactdetails{append} ON contactdetails{append}.contactid = touringcontacts{append}.contactid
+                        inner join bricks{append} on contact_wise_bricks{append}.brick_id=bricks{append}.brickid 
+                        INNER JOIN townbrickassociation{append} ON contactdetails{append}.brick = townbrickassociation{append}.brickid 
+                        INNER JOIN towns{append} ON townbrickassociation{append}.townid = towns{append}.townid 
+                        INNER JOIN touringyearmonth{append} ON touringday{append}.crmid = touringyearmonth{append}.crmid 
+                        WHERE touringcontacts{append}.contacttype = 'DR' and contactdetails{append}.deleted=0 and bricks{append}.deleted=0 
+                        and contactdetails{append}.brick=touringdetails{append}.patch_brick and contact_wise_bricks{append}.deleted=0 AND touringyearmonth{append}.crmid = {crm_id}  
+                        GROUP BY contactdetails{append}.contactid""".format(crm_id=crm_id, append=suffix)
             conn.execute(query2)
             drs_in_tp = conn.fetchall()
             if drs_in_tp:
@@ -356,19 +367,84 @@ def user_area(user_id):
     result = {}
     conn = create_db_conn()
     if conn is not None:
-        query = """select users.id, patches.patchid, patches.patchname, areas.areaid, areas.areaname,
-         regions.regionid, regions.regionname, zones.zoneid, zones.zonename from patches 
-         inner join areas on patches.areaid = areas.areaid 
-         inner join regions on patches.regionid=regions.regionid 
-         inner join zones on patches.zoneid=zones.zoneid 
-         inner join users on users.patch=patches.patchid where users.id={user_id}""".format(user_id=user_id)
+        query = """select users{append}.id, patches{append}.patchid, patches{append}.patchname, areas{append}.areaid, areas{append}.areaname,
+         regions{append}.regionid, regions{append}.regionname, zones{append}.zoneid, zones{append}.zonename from patches{append} 
+         inner join areas{append} on patches{append}.areaid = areas{append}.areaid 
+         inner join regions{append} on patches{append}.regionid=regions{append}.regionid 
+         inner join zones{append} on patches{append}.zoneid=zones{append}.zoneid 
+         inner join users{append} on users{append}.patch=patches{append}.patchid where users{append}.id={user_id}""".format(user_id=user_id, append=suffix)
         conn.execute(query)
         result = conn.fetchone()
+        if not result:
+            result = {}
     return result
     
 def ach_percent():
     query = ""
 
+def two_v_coverage(user_id):
+    data = []
+    conn = create_db_conn()
+    if conn is not None:
+        query = "select year, month, spl_freqcoverage,rpl_freqcoverage,tpl_freqcoverage,qpl_freqcoverage from adminmis{append} where userid = {user_id} order by year,month".format(user_id=user_id, append=suffix)
+        conn.execute(query)
+        result = conn.fetchall()
+        for row in result:
+            temp = deepcopy(row)
+            temp["spl_freqcoverage"] = float(row.get("spl_freqcoverage", 0))
+            temp["rpl_freqcoverage"] = float(row.get("rpl_freqcoverage", 0))
+            temp["tpl_freqcoverage"] = float(row.get("tpl_freqcoverage", 0))
+            temp["qpl_freqcoverage"] = float(row.get("qpl_freqcoverage", 0))
+            data.append(temp)
+        conn.close()
+    return data
+
+def tp_dev(user_id):
+    data = []
+    conn = create_db_conn()
+    if conn is not None:
+        query = "select year, month, deviation_days, field_days, (deviation_days/field_days)*100 as tp_dev from individual_mis_summary{append} where id={user_id} order by year,month".format(user_id=user_id, append=suffix)
+        conn.execute(query)
+        result = conn.fetchall()
+        for row in result:
+            temp = deepcopy(row)
+            #print(row)
+            temp["deviation_days"] = float(row.get("deviation_days",0))
+            temp["field_days"] = float(row.get("field_days",0))
+            temp["tp_dev"] = float(row.get("tp_dev",0)) if row.get("tp_dev") else 0
+            data.append(temp)
+        conn.close()
+    return data
+
+def call_avg(user_id):
+    data = []
+    conn = create_db_conn()
+    if conn is not None:
+        query = "SELECT year, month, avg_dr_calls FROM `individual_mis_summary{append}` where id={user_id} order by year,month".format(user_id=user_id, append=suffix)
+        conn.execute(query)
+        result = conn.fetchall()
+        for row in result:
+            temp = deepcopy(row)
+            temp["avg_dr_calls"] = float(row.get("avg_dr_calls", 0))
+            data.append(temp)
+        conn.close()
+    return data
+
+def dcr_lock(user_id):
+    data = []
+    conn = create_db_conn()
+    if conn is not None:
+        query = "SELECT year, month, leavetype, frm_date, to_date, no_of_days, reason FROM `leaveapplication{append}` where emp_id={user_id} and leavetype='LWP' and reason like '%DAR BLOCKED BY SYSTEM%' order by year,month".format(user_id=user_id, append=suffix)
+        conn.execute(query)
+        result = conn.fetchall()
+        for row in result:
+            temp = deepcopy(row)
+            temp["frm_date"] = row.get("frm_date").strftime("%Y-%m-%d")
+            temp["to_date"] = row.get("to_date").strftime("%Y-%m-%d")
+            temp["no_of_days"] = float(row.get("no_of_days", 0))
+            data.append(temp)
+        conn.close()
+    return data
 
 if __name__=="__main__":
     print("Working...")

@@ -263,6 +263,7 @@ def individual_summary(division_wise_off):
                 mongo_db["statistics"].replace_one({"id":row["id"]},stats_temp)
             else:
                 mongo_db["statistics"].insert(stats_temp)
+            temp["score"] = score
             resp_user_data = mongo_db["user_data"].find_one({"id":row["id"], "year":year, "month":month})
             if resp_user_data:
                 mongo_db["user_data"].replace_one({"id":row["id"]}, temp)

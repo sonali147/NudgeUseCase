@@ -48,6 +48,7 @@ print(year)
 print(month)
 print(today_date)
 
+
 def main():
     division_wise_off = division_holidays()
     #print(division_wise_off)
@@ -181,7 +182,6 @@ def get_dates(day_names):
 
 def individual_summary(division_wise_off):
     result = ()
-    id_list = []
     data = []
     conn = create_db_conn()
     if conn is not None:
@@ -192,6 +192,7 @@ def individual_summary(division_wise_off):
         result = conn.fetchall()
         #print(result) #tuple
         for row in result:
+            score = 0
             temp = deepcopy(row)
             temp["year"] = year
             temp["month"] = month 
@@ -201,6 +202,8 @@ def individual_summary(division_wise_off):
                     temp[k] = float(v)
             #tp deviation
             temp["tp_deviation"] = round(temp["deviation_days"]/temp["field_days_till_date"] * 100,2) if temp["field_days_till_date"] else 0
+            if temp["tp_deviation"] < 10:
+                score += 10
             print(row["id"])
             territory_info = user_area(row["id"]) 
             temp["patchid"] = territory_info.get("patchid", None)
@@ -223,27 +226,50 @@ def individual_summary(division_wise_off):
             temp["field_days"] = sorted(list(set(month_date_list) - set(week_off.get("holiday_dates",[])) - set(holidays) - set(leaves)))
             temp["no_of_field_days"] = len(temp["field_days"])
             temp = adminmis(temp)
+            if temp.get("coverage", None):
+                if temp["coverage"] > 90:
+                    score += 10
+                if temp["coverage"] > 95:
+                    score += 10
             tp = tour_plan(row["id"])
-            dcr_report = mongo_db["dcr"].find_one({"id": row["id"]}, {"_id": 0});
+            dcr_report = mongo_db["dcr"].find_one({"id": row["id"], "year": year, "month": month}, {"_id": 0});
             if dcr_report:
                 dcr(dcr_report)
             else:
                 dcr_report = {}
                 dcr_report["id"] = row["id"]
+                dcr_report["year"] = year
+                dcr_report["month"] = month
                 dcr_report["dcr_open"] = []
                 dcr_report["dcr_completed"] = []
                 for dt in temp["field_days"]:
                     dcr_report["dcr_open"].append({"date": dt, "status": "Open", "completed": None, "filedWithin": None})
                 dcr(dcr_report)
+            lock = dcr_lock(row["id"])
+            if lock:
+                no_lock = True
+                for e in lock:
+                    if e["year"] == year and e["month"] == month:
+                        no_lock = False
+                        break
+                if no_lock:
+                    score += 10
+            else:
+                score += 10
             stats_temp = {"id":row["id"], "2V":two_v_coverage(row["id"]), "call_avg":call_avg(row["id"]),  
-            "tp_dev":tp_dev(row["id"]), "dcr":dcr_lock(row["id"])}
-            resp = mongo_db["statistics"].find_one({"id":row["id"]})
-            if resp:
+            "tp_dev":tp_dev(row["id"]), "dcr":lock, "score":score}
+            resp_stat = mongo_db["statistics"].find_one({"id":row["id"]})
+            if resp_stat:
                 mongo_db["statistics"].replace_one({"id":row["id"]},stats_temp)
             else:
                 mongo_db["statistics"].insert(stats_temp)
+            resp_user_data = mongo_db["user_data"].find_one({"id":row["id"], "year":year, "month":month})
+            if resp_user_data:
+                mongo_db["user_data"].replace_one({"id":row["id"]}, temp)
+            else:
+                mongo_db["user_data"].insert(temp)
             data.append(temp)
-        mongo_dump(data, "user_data", many=1)
+        #mongo_dump(data, "user_data", many=1)
         conn.close()
     return data
 
@@ -255,6 +281,8 @@ def adminmis(temp):
     temp["rpl"] = {}
     temp["tpl"] = {}
     temp["qpl"] = {}
+    avg = 0
+    count = 0
     if conn is not None:
         query = """select drsinlistspl,drsinlistrpl,drsinlisttpl,drsinlistqpl,drsinlisttotal,
         spl_dr_met_once, spl_dr_met_twice, spl_dr_met_thrice, spl_dr_met_four, spl_dr_met_more_four,   
@@ -297,12 +325,27 @@ def adminmis(temp):
         temp["rpl"]["coverage"] = float(result.get("rpl_freqcoverage", 0))
         temp["tpl"]["coverage"] = float(result.get("tpl_freqcoverage", 0))
         temp["qpl"]["coverage"] = float(result.get("qpl_freqcoverage", 0))
+        if temp["spl"]["tot_drs"] > 0 :
+            avg += temp["spl"]["coverage"]
+            count += 1
+        if temp["rpl"]["tot_drs"] > 0 :
+            avg += temp["rpl"]["coverage"]
+            count += 1
+        if temp["tpl"]["tot_drs"] > 0 :
+            avg += temp["tpl"]["coverage"]
+            count += 1
+        if temp["qpl"]["tot_drs"] > 0 :
+            avg += temp["qpl"]["coverage"]
+            count += 1
+        if count != 0:
+            avg = round(avg/count,2)
+        temp["coverage"] = avg
     return temp
 
 def dcr(dcr_report):
     result = ()
     user_id = dcr_report["id"]
-    dt_completed = [e["date"] for e in dcr_report["dcr_completed"]]
+    #dt_completed = [e["date"] for e in dcr_report["dcr_completed"]]
     dt_open = [e["date"] for e in dcr_report["dcr_open"]]
     conn = create_db_conn()
     if conn is not None:
@@ -320,7 +363,12 @@ def dcr(dcr_report):
                     dcr_report["dcr_open"] = [each for each in dcr_report["dcr_open"] if each["date"] != dt_str ]
                     filedWithin = (each["creation_date"] - dt).days
                     dcr_report["dcr_completed"].append({"date":dt_str, "status":status, "completed_date":each["creation_date"].strftime("%Y-%m-%d"), "filedWithin":filedWithin})
-    mongo_dump(dcr_report, "dcr")
+    resp_dcr = mongo_db["dcr"].find_one({"id":user_id, "year":year, "month":month})
+    if resp_dcr:
+        mongo_db["dcr"].replace_one({"id":user_id, "year":year, "month":month}, dcr_report)
+    else:
+        mongo_db["dcr"].insert(dcr_report)
+    #mongo_dump(dcr_report, "dcr")
 
 def tour_plan(user_id):
     result = ()
@@ -359,7 +407,11 @@ def tour_plan(user_id):
                 for row in drs_in_tp:
                     data.append(row)
                 dr_details["data"]= data
-                mongo_dump(dr_details, "tour_plan")
+                resp_tp = mongo_db["tour_plan"].find_one({"id":user_id, "year":year, "month":month})
+                if resp_tp:
+                    mongo_db["tour_plan"].replace_one({"id":user_id, "year":year, "month":month}, dr_details)
+                else:
+                    mongo_dump(dr_details, "tour_plan")
             conn.close()
     return dr_details
 
@@ -386,15 +438,36 @@ def two_v_coverage(user_id):
     data = []
     conn = create_db_conn()
     if conn is not None:
-        query = "select year, month, spl_freqcoverage,rpl_freqcoverage,tpl_freqcoverage,qpl_freqcoverage from adminmis{append} where userid = {user_id} order by year,month".format(user_id=user_id, append=suffix)
+        query = "select year, month, drsinlistspl, drsinlistrpl, drsinlisttpl, drsinlistqpl, spl_freqcoverage,rpl_freqcoverage,tpl_freqcoverage,qpl_freqcoverage from adminmis{append} where userid = {user_id} order by year,month".format(user_id=user_id, append=suffix)
         conn.execute(query)
         result = conn.fetchall()
         for row in result:
+            avg = 0
+            count = 0
             temp = deepcopy(row)
+            del temp["drsinlistspl"]
+            del temp["drsinlistrpl"]
+            del temp["drsinlisttpl"]
+            del temp["drsinlistqpl"]
             temp["spl_freqcoverage"] = float(row.get("spl_freqcoverage", 0))
             temp["rpl_freqcoverage"] = float(row.get("rpl_freqcoverage", 0))
             temp["tpl_freqcoverage"] = float(row.get("tpl_freqcoverage", 0))
             temp["qpl_freqcoverage"] = float(row.get("qpl_freqcoverage", 0))
+            if row["drsinlistspl"] > 0 :
+                avg += temp["spl_freqcoverage"]
+                count += 1
+            if row["drsinlistrpl"] > 0 :
+                avg += temp["rpl_freqcoverage"]
+                count += 1
+            if row["drsinlisttpl"] > 0 :
+                avg += temp["tpl_freqcoverage"]
+                count += 1
+            if row["drsinlistqpl"] > 0 :
+                avg += temp["qpl_freqcoverage"]
+                count += 1
+            if count != 0:
+                avg = round(avg/count,2)
+            temp["coverage"] = avg
             data.append(temp)
         conn.close()
     return data

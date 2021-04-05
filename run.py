@@ -4,6 +4,7 @@ import MySQLdb.cursors
 from copy import deepcopy
 from pymongo import MongoClient
 from datetime import datetime, date, timedelta
+import time,math
 
 try:
     db = MySQLdb.connect(
@@ -36,7 +37,7 @@ now = datetime.now()
 year = now.year
 #year = 2017
 month = now.month
-#month = 4
+month = 3 
 last_date = date(year, month+1,1) - timedelta(days=1)
 total_days_in_month = last_date.strftime("%d")
 month_date_list = [date(year,month,each).strftime("%Y-%m-%d") for each in range(1,int(total_days_in_month)+1)]
@@ -48,11 +49,13 @@ print(year)
 print(month)
 print(today_date)
 
+today_date = "2021-03-31"
 
 def main():
     division_wise_off = division_holidays()
     #print(division_wise_off)
     summary = individual_summary(division_wise_off)
+    create_nudges()
     #print(summary)
     return True
 
@@ -272,6 +275,7 @@ def individual_summary(division_wise_off):
             data.append(temp)
         #mongo_dump(data, "user_data", many=1)
         conn.close()
+    # print (data)
     return data
 
 def adminmis(temp):
@@ -364,6 +368,8 @@ def dcr(dcr_report):
                     dcr_report["dcr_open"] = [each for each in dcr_report["dcr_open"] if each["date"] != dt_str ]
                     filedWithin = (each["creation_date"] - dt).days
                     dcr_report["dcr_completed"].append({"date":dt_str, "status":status, "completed_date":each["creation_date"].strftime("%Y-%m-%d"), "filedWithin":filedWithin})
+            
+                    
     resp_dcr = mongo_db["dcr"].find_one({"id":user_id, "year":year, "month":month})
     if resp_dcr:
         mongo_db["dcr"].replace_one({"id":user_id, "year":year, "month":month}, dcr_report)
@@ -520,12 +526,222 @@ def dcr_lock(user_id):
         conn.close()
     return data
 
+def create_nudges():
+    print ("in create_nudges")
+    prev_nudges_list = mongo_db["notifications"].find({ "year": year, "month": month, "action_taken": False}, {"_id": 0})
+    prev_nudges_dict = {}
+    for row in prev_nudges_list:
+        if row["id"] in prev_nudges_dict:
+            prev_nudges_dict[row["id"]].append(row)
+        else:
+            prev_nudges_dict[row["id"]] = [row]
+    all_user_data = mongo_db["user_data"].find({ "year": year, "month": month}, {"_id": 0})
+    counter = 0
+    for user_data in all_user_data:
+        user_id = user_data["id"]
+        
+        prev_nudges = prev_nudges_dict[user_id] if prev_nudges_dict.get(user_id, None) else []
+
+        ##############call average################
+        call_avg_flag = True
+        maintain_call_avg = 12
+        
+        #call_avg from current data, get from previous nudge is any
+        current_call_avg = user_data.get("call_avg", 0)
+        call_avg_condition = {
+                "current_avg" : current_call_avg,
+                "maintain_avg" : maintain_call_avg,
+            }
+        prev_call_avg = list(filter(lambda x:x['type'] == "call_avg", prev_nudges)) 
+        if prev_call_avg:
+            if list(filter(lambda x:x["condition"]["current_avg"] == call_avg_condition["current_avg"] and x["condition"]["maintain_avg"] == call_avg_condition["maintain_avg"], prev_call_avg)):
+                call_avg_flag = False       
+        if current_call_avg >= 12.0:
+            text = "Hey you gained 10 points for maintaining a good call average, keep up the good work!!"
+            call_avg_flag = False
+        else:
+            call_avg_diff = 12 - current_call_avg
+            call_avg_diff = math.ceil(call_avg_diff)
+            text = "Your call average is low. To maintain the call average, please add " + str(call_avg_diff) + " doctor visits to your tour plan."
+        
+        # write if call avg nudge to be sent or not or previously sent and is any improvement
+        if call_avg_flag :
+            nudge_dict = {
+                "nudge_id":  str(int(time.time()))+ "_call_" + str(counter),
+                "text" : text,
+                "type": "call_avg",
+                "created_date" : today_date,
+                "action_taken" : False,
+                "sent": False,
+                "condition" : call_avg_condition,
+                "previous_nudge_id" :"",
+                "moved_todo" : False,
+                "new": True,
+                "month" : month,
+                "year" : year
+            }
+            mongo_dump(nudge_dict, "notifications")
+            counter +=1
+        
+        
+        ##############tour plan deviation################
+        tp_deviation = user_data.get("tp_deviation", 0)
+        tp_dev_flag = True       
+        tp_dev_condition = {
+            "current_deviation" : tp_deviation
+            }
+        prev_tp = list(filter(lambda x:x['type'] == "tp_dev", prev_nudges)) 
+        if prev_tp:
+            if list(filter(lambda x:x["condition"]["current_deviation"] == tp_dev_condition["current_deviation"], prev_tp)):
+                tp_dev_flag = False       
+        ## check towards month end to send notification
+        if tp_dev_flag and tp_deviation > 10:
+            text = "You have deviated from your Tour Plan by " +str(tp_deviation) +"%. Please plan your Monthly Tour Plan properly to avoid loosing points"
+            nudge_dict = {
+                "nudge_id":  str(int(time.time()))+ "_tp_dev_" + str(counter),
+                "text" : text,
+                "type": "tp_dev",
+                "created_date" : today_date,
+                "action_taken" : False,
+                "sent": False,
+                "condition" : tp_dev_condition,
+                "previous_nudge_id" :"",
+                "moved_todo" : False,
+                "new": True,
+                "month" : month,
+                "year" : year
+            }
+            mongo_dump(nudge_dict, "notifications")
+            counter +=1
+        
+        
+        ##############Coverage################
+        coverage = user_data.get("coverage", 0)
+        coverage_flag = True
+        expected_coverage = 90
+        if coverage >= 90:
+            expected_coverage = 95
+        coverage_condition = {
+            "current_coverage":coverage,
+            "expected_coverage": expected_coverage,
+            }
+        prev_coverage = list(filter(lambda x:x['type'] == "coverage", prev_nudges)) 
+        if prev_coverage:
+            if list(filter(lambda x:x["condition"]["current_coverage"] == coverage_condition["current_coverage"] and x["condition"]["expected_coverage"] == coverage_condition["expected_coverage"], prev_coverage)):
+                coverage_flag = False
+        
+        if coverage <90:
+            text = "You have visited "+str(coverage) + "% of doctors according to the number of visits planned, please try to cover more than 90% to gain points"
+        elif coverage >=90 and coverage < 95 :
+            text = "Congratulations on hitting 90% of your planned visits. On achieving 95%, you will be awarded extra 10 points."
+        elif coverage >= 95:
+            text = "well done"
+            coverage_flag = False
+            
+        if coverage_flag:
+            nudge_dict = {
+                "nudge_id":  str(int(time.time()))+ "_coverage_" + str(counter),
+                "text" : text,
+                "type": "coverage",
+                "created_date" : today_date,
+                "action_taken" : False,
+                "sent": False,
+                "condition" : coverage_condition,
+                "previous_nudge_id" :"",
+                "moved_todo" : False,
+                "new": True,
+                "month" : month,
+                "year" : year
+            }
+            mongo_dump(nudge_dict, "notifications")
+            counter +=1
+        
+        ##############DCR filing################
+        dcr_data = mongo_db["dcr"].find_one({ "id": user_id,"year": year, "month": month}, {"_id": 0})
+        dcr_flag = False
+        # today_date = "2021-03-31"
+        dcr_condition = {
+            "pending_days" : 5,
+            "lock" : False,
+            "date" : str(today_date)
+            }
+
+        prev_dcr = list(filter(lambda x:x['type'] == "dcr", prev_nudges)) 
+        if prev_dcr:
+            pending_dcr = list(filter(lambda x:x["condition"]["lock"] == False and x["condition"]["pending_days"] > 0, prev_dcr))
+            dcr_open_dates = [each["date"] for each in dcr_data["dcr_open"]]
+            dcr_pending = []
+            for each in pending_dcr:
+                if each["created_date"] in dcr_open_dates:
+                    temp = deepcopy(pending_dcr[each])
+                    temp["condition"]["pending_days"] = pending_dcr[each]["condition"]["pending_days"] - 1
+                    if temp["condition"]["pending_days"] > 0:
+                        temp["text"] = "A gentle reminder to file {} DCR report to avoid dcr lock.".format(each["created_date"])
+                    else:
+                        temp["text"] = "Sorry your DCR report for {} is locked. Please visit your manager.".format(each["created_date"])
+                        temp["condition"]["lock"] = True
+                    mongo_db["notifications"].replace_one({"id":user_id, "type":"dcr", "created_date": each["date"]}, temp)
+                    dcr_pending.append(temp)
+
+        
+        for doc in dcr_data.get("dcr_open",[]):
+            if doc.get("date","") == str(today_date) and doc.get("status","") == "Open":
+                text = "A reminder to file the today's DCR report, to avoid DCR lock."
+                dcr_flag = True
+        
+        if dcr_flag:
+            nudge_dict = {
+                "id" : user_id,
+                "nudge_id":  str(int(time.time()))+ "_dcr_" + str(counter),
+                "text" : text,
+                "type": "dcr",
+                "created_date" : today_date,
+                "action_taken" : False,
+                "sent": False,
+                "condition" : dcr_condition,
+                "previous_nudge_id" :"",
+                "moved_todo" : False,
+                "new": True,
+                "month" : month,
+                "year" : year
+            }
+            mongo_dump(nudge_dict, "notifications")
+            counter +=1
+            
+        # check other old filings and pending details
+
+        #################adding tour plan to TODO list#############
+        day = int(now.strftime("%d"))
+        tour_data = mongo_db["tour_plan"].find_one({ "id": user_id,"year": year, "month": month}, {"_id": 0});
+        
+        for tour in tour_data.get("data",[]):
+            if tour["day"] == day and tour.get("contactName", ""):
+                
+                text = "Visit " + tour.get("contactName", "")
+                todo_dict = {
+                    "id" : user_id,
+                    "todo_id":  str(int(time.time()))+ "_todo_" + str(counter),
+                    "linked_nudge_id" : "",
+                    "text": text,
+                    "created_date" : today_date,
+                    "action_taken" : False,
+                    "sent": False,
+                    "new": True,
+                    "month" : month,
+                    "year" : year
+                }
+                mongo_dump(todo_dict, "todo")
+                counter +=1
+        
+        
+        
+
 if __name__=="__main__":
     print("Working...")
     main()
-    #print(division_holidays())
-    #print(get_dates(["Fri2", "Mon3", "Sun"]))
-    #print(user_holiday(864))
-    #print(user_leaves(864))
-    #print(tour_plan(6035))
+    # print(division_holidays())
+    # print(get_dates(["Fri2", "Mon3", "Sun"]))
+    # print(user_holiday(864))
+    # print(user_leaves(864))
+    # print(tour_plan(6035))
 

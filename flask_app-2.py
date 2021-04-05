@@ -64,10 +64,11 @@ class FlaskApp():
     def get_stats_data(self, user_id):
         collection = self.mongo_db["statistics"]
         now = datetime.now()
-        resp = collection.find_one({"id":user_id}, {"_id":0, "id":1, "2V":1, "dcr":1, "tp_dev":1, "score":1})
+        resp = collection.find_one({"id":user_id}, {"_id":0, "id":1, "2V":1, "dcr":1, "tp_dev":1, "call_avg":1, "score":1})
         resp["coverage"] = resp["2V"][-1]["coverage"]
         resp["tp_deviation"] = round(resp["tp_dev"][-1]["tp_dev"],2)
         field_days_till_date = self.mongo_db["user_data"].find_one({"id":user_id, "year":now.year, "month":now.month}, {"_id":0,"field_days_till_date":1})["field_days_till_date"]
+        #field_days_till_date = self.mongo_db["user_data"].find_one({"id":user_id, "year":now.year, "month":3}, {"_id":0,"field_days_till_date":1})["field_days_till_date"]
         if field_days_till_date:
             resp["dcr_percent"] = round((len(list(filter(lambda x:x["year"]==now.year and x["month"]==now.month, resp["dcr"])))/field_days_till_date)*100,2)
         else:

@@ -61,7 +61,8 @@ class FlaskApp():
             result.append(row)
         return {"data":resp, "rank":rank}
     
-    def get_stats_data(self, user_id):
+    def get_stats_data(self, user_id, year="all", filter_type="all"):
+        final_data = {}
         collection = self.mongo_db["statistics"]
         now = datetime.now()
         resp = collection.find_one({"id":user_id}, {"_id":0, "id":1, "2V":1, "dcr":1, "tp_dev":1, "call_avg":1, "score":1})
@@ -82,6 +83,13 @@ class FlaskApp():
             temp["count"] = e["count"]
             dcr_stat.append(temp)
         resp["dcr"] = sorted(dcr_stat, key=lambda x:(x["year"],x["month"]))
+        if filter_type != "all":
+            # filter_type - "2V", "call_avg", "tp_dev", "dcr"
+            final_data[filter_type] = resp[filter_type]
+            # year should be integer
+            if year != "all":
+                final_data[filter_type] = list(filter(lambda x:x['year']==year, final_data[filter_type]))
+            return final_data
         return resp
 
     def main(self, user_id):
@@ -129,11 +137,12 @@ def get_leaderboard_data():
     return json.dumps(resp)
 
 
-@app.route("/get_stats", methods=["GET"]) #user id, type, filter
+@app.route("/get_stats", methods=["GET"]) #user id, year, filter
 def get_stats_data():
     data = json.loads(request.data)
     print(data)
-    resp = obj.get_stats_data(data['user_id'])
+    # expecting year should be int and filter should be "2V", "call_avg", "tp_dev", "dcr"
+    resp = obj.get_stats_data(data['user_id'], year=data['year'], filter_type=data['filter'])
     return json.dumps(resp)
 
 

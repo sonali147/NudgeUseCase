@@ -11,7 +11,8 @@ headers = {
     }
 payload = {
     'user_id' : 3965,
-    'filter' : "area"
+    'filter' : "2V",
+    'year': 2021
 }
 response = requests.request("GET", url, headers=headers, data=json.dumps(payload))
 nudge = json.loads(response.text)
